@@ -1,10 +1,36 @@
 ﻿using System;
 using System.Management;
+using Microsoft.Management.Infrastructure;
+using Microsoft.Management.Infrastructure.Options;
 
 namespace RAIDDetection
 {
     public class Raid
     {
+        public void getDiskDriveInfo()
+        {
+            try
+            {
+                // Create a ManagementObjectSearcher to query WMI
+                ManagementObjectSearcher searcher = new ManagementObjectSearcher("root\\CIMV2", "SELECT * FROM Win32_DiskDrive");
+
+                foreach (ManagementObject queryObj in searcher.Get())
+                {
+                    Console.WriteLine("Disk Drive: {0}", queryObj["Caption"]);
+                    Console.WriteLine("Model: {0}", queryObj["Model"]);
+                    Console.WriteLine("InterfaceType: {0}", queryObj["InterfaceType"]);
+                    Console.WriteLine("MediaType: {0}", queryObj["MediaType"]);
+                    Console.WriteLine("SerialNumber: {0}", queryObj["SerialNumber"]);
+                    Console.WriteLine("Partitions: {0}", queryObj["Partitions"]);
+                    Console.WriteLine("Size: {0}", queryObj["Size"]);
+                    Console.WriteLine();
+                }
+            }
+            catch (ManagementException e)
+            {
+                Console.WriteLine("An error occurred while querying WMI: " + e.Message);
+            }
+        }
         //static void Main(string[] args)
         // give a list of all the RAID controllers and disk drives
         //suggest a method name that is more descriptive
