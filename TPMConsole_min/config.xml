@@ -1,0 +1,10 @@
+﻿<?xml version="1.0" encoding="utf-8" ?>
+<Configuration>
+  <TpmHandleType>0x01C20000</TpmHandleType>
+  <getproperties>0</getproperties>
+  <getcommands>0</getcommands>
+  <readhandles>0</readhandles>
+  <generatecert>0</generatecert>
+  
+  
+</Configuration>

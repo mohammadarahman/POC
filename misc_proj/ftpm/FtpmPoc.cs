@@ -5,15 +5,61 @@ using System.Xml.Schema;
 using System.Security.Cryptography;
 using Microsoft.Management.Infrastructure;
 using Microsoft.Management.Infrastructure.Options;
-
+using System.Collections.ObjectModel;
+using System.Management.Automation;
 using System.Linq.Expressions;
 using static System.Runtime.InteropServices.JavaScript.JSType;
 using System.Reflection.Metadata;
+using System.Collections.ObjectModel;
+using System.Text;
 namespace FTPMDetection
 {
     public class FtpmPoc
     {
-         
+        public string GetPublicHashKey_usingpowershell()
+        {
+            try
+            {
+                // Create the PowerShell instance
+                using (PowerShell ps = PowerShell.Create())
+                {
+                    // Add the PowerShell command to the pipeline
+                    ps.AddCommand("Get-TpmEndorsementKeyInfo")
+                      .AddParameter("hash", "sha256");
+
+                    // Execute the command and get the results
+                    Collection<PSObject> results = ps.Invoke();
+                    Console.WriteLine("Results: " + results.Count);
+                    // Process the results and extract the public hash key (assumes it's in the output)
+                    foreach (PSObject result in results)
+                    {
+                        Console.WriteLine("Result: " + result);
+                        // Depending on the output, extract the necessary information
+                        var publicKey = result.Properties["PublicKey"]?.Value; // Adjust based on actual output
+                        var publicKeyHash = result.Properties["PublicKeyHash"]?.Value; // Adjust based on actual output
+
+                        if (publicKey != null)
+                        {
+                            AsnEncodedData asndata = (AsnEncodedData)publicKey;
+
+                            byte[] rd = asndata.RawData;
+                            
+                            string publicKeyAscii = Encoding.ASCII.GetString(rd);
+                            Console.WriteLine("Public Key: " + publicKeyAscii);
+                            Console.WriteLine("Public Key Hash: " + publicKeyHash);
+                            return publicKey.ToString();
+                        }
+                    }
+
+                    return "Public Key not found.";
+                }
+            }
+            catch (Exception ex)
+            {
+                // Handle exceptions (e.g., PowerShell execution errors)
+                return $"Error executing PowerShell command: {ex.Message}";
+            }
+        }
         public void getBiosInfo()
         {
             try

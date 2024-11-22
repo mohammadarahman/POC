@@ -1,0 +1,27 @@
+﻿<?xml version="1.0" encoding="utf-8" ?>
+<configuration>
+  <commandSize>22</commandSize>
+  <command>
+  80 01  
+  00 00 00 00
+  00 00 01 7a 
+  00 00 00 01 
+  01 C0 00 00 
+  00 00 00 FF
+  </command>
+  <command_nvrd_2>
+    80 01 
+    00 00 00 00 
+    00 00 01 9e 
+    81 00 00 09
+  </command_nvrd_2>
+  <command_getcap>
+    80 01
+    00 00 00 00
+    00 00 01 7a
+    00 00 00 01
+    01 C0 00 00
+    00 00 00 FF
+  </command_getcap>
+  
+</configuration>

@@ -10,7 +10,7 @@ class Program
         //Raid raid = new Raid();
         //raid.GetRaidControllersAndDiskDrives();
         FtpmPoc ft = new FtpmPoc();
-        ft.getTPMInfo1();
+        ft.GetPublicHashKey_usingpowershell();
         
     }
     
