@@ -44,7 +44,7 @@ namespace TPMKeyCreationExample
                 if (en_nvrd != 0)
                 {
                     NvRead();
-                    NvReadPublic();
+                    NvReadPublic_();
                 }
                 if ((en_rdpcr != 0)&&nvindexes!=null)
                     ReadPcr();
@@ -93,7 +93,14 @@ namespace TPMKeyCreationExample
                 en_getalgpr = Convert.ToUInt32(xmlDoc.Root.Element("GetAlgProperties").Value, 16);
                 en_nvrd = Convert.ToUInt32(xmlDoc.Root.Element("NvRead").Value, 16);
                 nvidx = Convert.ToUInt32(xmlDoc.Root.Element("NvRead_idx").Value, 16);
-                nvhdl = Convert.ToUInt32(xmlDoc.Root.Element("NvRead_hdl").Value, 16);
+                XElement nvhdlElement = xmlDoc.Root.Element("NvRead_hdl");
+                if (nvhdlElement != null)
+                {
+                    nvhdl = Convert.ToUInt32(nvhdlElement.Value, 16);
+                }else
+                {
+                    nvhdl = nvidx;
+                }
                 nvsz = Convert.ToUInt16(xmlDoc.Root.Element("NvRead_sz").Value, 16);
 
             }
@@ -104,20 +111,36 @@ namespace TPMKeyCreationExample
         }
         static void NvRead()
         {
-            Console.WriteLine($"\n         #### NV Read ####");
-            TpmHandle nvHandle = TpmHandle.NV(nvhdl);
-            TpmHandle nvIndex = TpmHandle.NV(nvidx);
-            byte[] nvRead = tpm.NvRead(nvHandle, nvIndex, nvsz, 0);
-            Console.WriteLine($"NV Read: {nvRead.Length}  #  {BitConverter.ToString(nvRead).Replace("-", "")}");
+            try
+            {
+                Console.WriteLine($"\n         #### NV Read ####");
+                TpmHandle nvHandle = TpmHandle.NV(nvhdl);
+                TpmHandle nvIndex = TpmHandle.NV(nvidx);
+                byte[] nvRead = tpm.NvRead(nvHandle, nvIndex, nvsz, 0);
+                Console.WriteLine($"nvRead: {nvRead.Length}  #  {BitConverter.ToString(nvRead).Replace("-", "")}");
+            }
+            catch(Exception ex)
+            {
+                Console.WriteLine("Error in NvRead: " + ex.Message);
+            }
+            
         }
-        static void NvReadPublic()
+        static void NvReadPublic_()
         {
-            Console.WriteLine($"\n         #### NV Read Public ####");
-            TpmHandle nvIndex = TpmHandle.NV(nvidx);
-            byte[] nvRead = tpm.NvReadPublic(nvIndex, out var nvName);
-            ParseNvName(nvName);
-            Console.WriteLine($"NV Read Public: {nvRead.Length}  #  {BitConverter.ToString(nvRead).Replace("-", "")}");
-        }
+            try
+            { 
+                Console.WriteLine($"\n         #### NV Read Public ####");
+                TpmHandle nvIndex = TpmHandle.NV(nvidx);
+                //nvPublic and nVRead is same
+                byte[] nvRead = tpm.NvReadPublic(nvIndex, out var nvName);
+                ParseNvName(nvName);
+                Console.WriteLine($"nvRead Public: {nvRead.Length}  #  {BitConverter.ToString(nvRead).Replace("-", "")}");
+            }
+            catch(Exception ex)
+            {
+                Console.WriteLine("Error in NvRead: " + ex.Message);
+            }
+}
         static void ReadHandles(TpmHandle[] indexes)
         {
             Console.WriteLine($"\n\n         #### Reading data from found handles.  ####");
@@ -356,7 +379,7 @@ namespace TPMKeyCreationExample
                 try
                 {
                     uint nvIndex = index.GetIndex();
-                    bool isLowRange = nvIndex >= 0x01C00002 && nvIndex <= 0x01C0000C;
+                    //bool isLowRange = nvIndex >= 0x01C00002 && nvIndex <= 0x01C0000C;
                     //bool isHighRange = nvIndex >= 0x01C00012 && nvIndex <= ekCertHandleRangeEnd;
 
                     // Step 3: Read the NV index using TPM2_NV_ReadPublic() and TPM2_NV_Read()

@@ -1,13 +1,11 @@
 ﻿<?xml version="1.0" encoding="utf-8" ?>
 <configuration>
-  <commandSize>22</commandSize>
+  <commandSize>14</commandSize>
   <command>
     80 01
     00 00 00 00
-    00 00 01 7a
-    00 00 00 00
-    12 00 00 00
-    00 00 00 FF
+    00 00 01 9E
+    01 c0 00 0A
   </command>
   <XArray>2, 4, 4, 4, 1</XArray>
   <command_nvrd_2>

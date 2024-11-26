@@ -2,14 +2,18 @@
 <Configuration>
   <TpmCapType>0x00000001</TpmCapType>
   <TpmHandleType>0x01000000</TpmHandleType>
+  
   <readhandles>0</readhandles>
   <getproperties>0</getproperties>
-  <getcommands>0</getcommands>
+  <getcommands>1</getcommands>
   <generatecert>0</generatecert>
   <readpcr>0</readpcr>
-  <NvRead>1</NvRead>
-  <NvRead_idx>0xC00002</NvRead_idx>
-  <NvRead_hdl>0xC00002</NvRead_hdl>
-  <NvRead_sz>0x10</NvRead_sz>
+  
+  <!-- nvread (used in two function) NvRead(nvHandle, nvIndex, nvsz, 0); NvReadPublic(nvIndex, out var nvName);
+            ParseNvName(nvName);  -->
+  <NvRead>0</NvRead>
+  <NvRead_idx>0x410002</NvRead_idx>
+  <NvRead_sz>0x8</NvRead_sz>
+  <NvRead_hdl>0x820002</NvRead_hdl>
 <GetAlgProperties>0</GetAlgProperties>
 </Configuration>
