@@ -7,6 +7,8 @@ using Tpm2Lib;
 using System.Security.Cryptography.X509Certificates;
 using System.Globalization;
 using System.Runtime.InteropServices;
+using Microsoft.Azure.Devices.Shared;
+using Microsoft.Azure.Devices.Provisioning.Security;
 
 namespace TPMKeyCreationExample
 {
@@ -20,14 +22,20 @@ namespace TPMKeyCreationExample
         private static uint en_rdpcr = 0;
         private static uint en_gencer = 0;
         private static uint en_getalgpr = 0;
+        private static uint en_sendrc = 0;
+        private static uint en_azuretst = 0;
+        private static byte[] sendrawcommand_input;
+        private static uint sendrawcommand_sz = 0;
+        private static int[] x;
         private static uint en_nvrd = 0;
         private static uint nvidx = 3001;
         private static uint nvhdl = 3001;
         private static ushort nvsz = 8;
         private static Tpm2 tpm;
+        private static TbsDevice tpmDevice = null;
         static void Main()
         {
-            TbsDevice tpmDevice = null;
+            
             try
             {
 
@@ -54,6 +62,11 @@ namespace TPMKeyCreationExample
                     GenerateCert(nvindexes);
                 if (en_getalgpr != 0)
                     GetAlgProperties();
+                if(en_azuretst!=0)
+                    AzureTest();
+                if (en_sendrc != 0)
+                    SendRawCommand();
+
 
             }
             catch (Exception ex)
@@ -68,16 +81,80 @@ namespace TPMKeyCreationExample
             }
 
         }
+        static void SendRawCommand()
+        {
+            Console.WriteLine($"\n         #### Raw Command Send ####");
+
+            CommandModifier active = new CommandModifier();
+            active.ActivePriority = TBS_COMMAND_PRIORITY.HIGH;
+            byte[] response = null;
+            try
+            {
+                byte[] commandSizeBytes = BitConverter.GetBytes(sendrawcommand_sz);
+                //byte[] command = ConstructTpmReadPublicCommand(tbsContext);
+                if (BitConverter.IsLittleEndian)
+                {
+                    Array.Reverse(commandSizeBytes);
+                }
+                // Copy the commandSizeBytes to the command array starting at position 2
+                Array.Copy(commandSizeBytes, 0, sendrawcommand_input, 2, 4);
+                tpmDevice.DispatchCommand(active, sendrawcommand_input, out response);
+                Console.WriteLine($"TPM Command : {BitConverter.ToString(sendrawcommand_input).Replace("-", " ")}");
+                Console.WriteLine($"TPM Response: {BitConverter.ToString(response).Replace("-", " ")}");
+                int resultSize = response.Length;
+                Console.WriteLine("Result size: " + resultSize);
+                for (int i = 0; i < resultSize; i++)
+                {
+                    if (x.Contains(i))
+                    {
+                        Console.Write("\n");
+                    }
+                    Console.Write(response[i].ToString("X2") + " ");
+                }
+            }
+            catch(Exception ex)
+            {
+                Console.WriteLine("An error occurred while sending the raw command: " + ex.Message);
+            }   
+        } 
+
+        static void AzureTest()
+        {
+            Console.WriteLine($"\n         #### Azure Test ####");  
+            using (var securityProviderTpm = new SecurityProviderTpmHsm(""))
+            {
+                try
+                {
+                    // Get the Registration ID
+                    string registrationId = securityProviderTpm.GetRegistrationID();
+                    //
+                    // Output the Registration ID
+                    Console.WriteLine($"Registration ID: {registrationId}");
+                    // Get the Endorsement Key (EK)
+                    byte[] endorsementKey = securityProviderTpm.GetEndorsementKey();
+                    // print endorsementky
+                    Console.WriteLine($"Endorsement Key (EK): {BitConverter.ToString(endorsementKey).Replace("-", "")}");
+                    // Convert the EK to a readable string (e.g., Base64 or Hex)
+                    string ekBase64 = Convert.ToBase64String(endorsementKey);
+                    Console.WriteLine($"Endorsement Key (EK) in Base64: {ekBase64}");
+                }
+                catch (Exception ex)
+                {
+                    Console.WriteLine($"Error retrieving Endorsement Key: {ex.Message}");
+                }
+            }
+
+        }
         static void readXml()
         {
             try
             {
-                XDocument xmlDoc = XDocument.Load("config.xml");
-                XElement handleElement = xmlDoc.Root.Element("TpmHandleType");
+                XDocument config = XDocument.Load("config.xml");
+                XElement handleElement = config.Root.Element("TpmHandleType");
                 if (handleElement != null)
                     tpm_ht = Convert.ToUInt32(handleElement.Value, 16);
 
-                XElement capElement = xmlDoc.Root.Element("TpmCapType");
+                XElement capElement = config.Root.Element("TpmCapType");
                 if (capElement != null)
                 {
                     tpm_cap = (Cap)Convert.ToUInt32(capElement.Value, 16);
@@ -85,15 +162,42 @@ namespace TPMKeyCreationExample
 
                 }
 
-                en_getprop = Convert.ToUInt32(xmlDoc.Root.Element("getproperties").Value, 16);
-                en_getcmd = Convert.ToUInt32(xmlDoc.Root.Element("getcommands").Value, 16);
-                en_rdhdl = Convert.ToUInt32(xmlDoc.Root.Element("readhandles").Value, 16);
-                en_rdpcr = Convert.ToUInt32(xmlDoc.Root.Element("readpcr").Value, 16);
-                en_gencer = Convert.ToUInt32(xmlDoc.Root.Element("generatecert").Value, 16);
-                en_getalgpr = Convert.ToUInt32(xmlDoc.Root.Element("GetAlgProperties").Value, 16);
-                en_nvrd = Convert.ToUInt32(xmlDoc.Root.Element("NvRead").Value, 16);
-                nvidx = Convert.ToUInt32(xmlDoc.Root.Element("NvRead_idx").Value, 16);
-                XElement nvhdlElement = xmlDoc.Root.Element("NvRead_hdl");
+                en_getprop = Convert.ToUInt32(config.Root.Element("getproperties").Value, 16);
+                en_getcmd = Convert.ToUInt32(config.Root.Element("getcommands").Value, 16);
+                en_rdhdl = Convert.ToUInt32(config.Root.Element("readhandles").Value, 16);
+                en_rdpcr = Convert.ToUInt32(config.Root.Element("readpcr").Value, 16);
+                en_gencer = Convert.ToUInt32(config.Root.Element("generatecert").Value, 16);
+                en_getalgpr = Convert.ToUInt32(config.Root.Element("GetAlgProperties").Value, 16);
+                en_azuretst = Convert.ToUInt32(config.Root.Element("AzureTest").Value, 16);
+                en_sendrc = Convert.ToUInt32(config.Root.Element("SendRawCommand").Value, 16);
+                sendrawcommand_sz = uint.Parse(config.Root.Element("SendRawCommand_sz").Value);
+                sendrawcommand_input = config.Root.Element("SendRawCommand_input").Value
+                                            .Split(new[] { ' ', '\t', '\n', '\r' }, StringSplitOptions.RemoveEmptyEntries)
+                                            .Select(s => byte.Parse(s, System.Globalization.NumberStyles.HexNumber))
+                                            .ToArray();
+                int[] sendrawcommand_opformat = config.Root.Element("SendRawCommand_opformat").Value
+                       .Split(new[] { ',' }, StringSplitOptions.RemoveEmptyEntries)
+                       .Select(s => int.Parse(s.Trim()))
+                       .ToArray();
+                x = new int[50];
+                int sum = 0;
+                for (int i = 0; i < 50; i++)
+                {
+                    if (i < sendrawcommand_opformat.Length)
+                    {
+                        sum += sendrawcommand_opformat[i];
+                    }
+                    else
+                    {
+                        sum += 4;
+                    }
+                    x[i] = sum;
+                }
+
+
+                en_nvrd = Convert.ToUInt32(config.Root.Element("NvRead").Value, 16);
+                nvidx = Convert.ToUInt32(config.Root.Element("NvRead_idx").Value, 16);
+                XElement nvhdlElement = config.Root.Element("NvRead_hdl");
                 if (nvhdlElement != null)
                 {
                     nvhdl = Convert.ToUInt32(nvhdlElement.Value, 16);
@@ -101,7 +205,7 @@ namespace TPMKeyCreationExample
                 {
                     nvhdl = nvidx;
                 }
-                nvsz = Convert.ToUInt16(xmlDoc.Root.Element("NvRead_sz").Value, 16);
+                nvsz = Convert.ToUInt16(config.Root.Element("NvRead_sz").Value, 16);
 
             }
             catch (Exception ex)

@@ -5,9 +5,25 @@
   
   <readhandles>0</readhandles>
   <getproperties>0</getproperties>
-  <getcommands>1</getcommands>
+  <getcommands>0</getcommands>
   <generatecert>0</generatecert>
   <readpcr>0</readpcr>
+  <GetAlgProperties>0</GetAlgProperties>
+  <AzureTest>1</AzureTest>
+  
+  <SendRawCommand>1</SendRawCommand>
+  <SendRawCommand_input>
+        80 01
+    00 00 00 00
+    00 00 01 69
+    01 c0 00 02
+  </SendRawCommand_input>
+  <SendRawCommand_sz>
+    14
+  </SendRawCommand_sz>
+  <SendRawCommand_opformat>
+    2, 4,4,2
+  </SendRawCommand_opformat>
   
   <!-- nvread (used in two function) NvRead(nvHandle, nvIndex, nvsz, 0); NvReadPublic(nvIndex, out var nvName);
             ParseNvName(nvName);  -->
@@ -15,5 +31,4 @@
   <NvRead_idx>0x410002</NvRead_idx>
   <NvRead_sz>0x8</NvRead_sz>
   <NvRead_hdl>0x820002</NvRead_hdl>
-<GetAlgProperties>0</GetAlgProperties>
 </Configuration>
