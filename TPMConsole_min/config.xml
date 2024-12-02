@@ -1,5 +1,6 @@
 ﻿<?xml version="1.0" encoding="utf-8" ?>
 <Configuration>
+ 
   <TpmCapType>0x00000001</TpmCapType>
   <TpmHandleType>0x01000000</TpmHandleType>
   
@@ -9,26 +10,28 @@
   <generatecert>0</generatecert>
   <readpcr>0</readpcr>
   <GetAlgProperties>0</GetAlgProperties>
-  <AzureTest>1</AzureTest>
-  
-  <SendRawCommand>1</SendRawCommand>
+  <AzureTest>0</AzureTest>
+  <GenerateCertFrmIndex>0</GenerateCertFrmIndex>
+  <GenerateCertFrmIndex_id>0xc0000A</GenerateCertFrmIndex_id>
+    <!-- send raw command to TBS   -->
+  <SendRawCommand>0</SendRawCommand>
   <SendRawCommand_input>
-        80 01
+    80 01
     00 00 00 00
-    00 00 01 69
-    01 c0 00 02
+    00 00 01 4e
+    01 c0 00 0B
+    01 c0 00 0A
+    00 00 00 10
+    00 00 00 00
   </SendRawCommand_input>
-  <SendRawCommand_sz>
-    14
-  </SendRawCommand_sz>
   <SendRawCommand_opformat>
-    2, 4,4,2
+    2, 4,4,2,4,2
   </SendRawCommand_opformat>
   
-  <!-- nvread (used in two function) NvRead(nvHandle, nvIndex, nvsz, 0); NvReadPublic(nvIndex, out var nvName);
-            ParseNvName(nvName);  -->
+  <!-- nvread (used in two function) NvRead(nvHandle, nvIndex, nvsz, 0); NvReadPublic(nvIndex, out var nvName);    ParseNvName(nvName);  -->
   <NvRead>0</NvRead>
   <NvRead_idx>0x410002</NvRead_idx>
   <NvRead_sz>0x8</NvRead_sz>
   <NvRead_hdl>0x820002</NvRead_hdl>
+  <pwrshell>1</pwrshell>
 </Configuration>

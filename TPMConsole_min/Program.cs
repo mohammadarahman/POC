@@ -2,6 +2,7 @@
 using System.Collections;
 using System.Reflection.Metadata;
 using System.Text;
+using System.Text.Json;
 using System.Xml.Linq;
 using Tpm2Lib;
 using System.Security.Cryptography.X509Certificates;
@@ -9,9 +10,26 @@ using System.Globalization;
 using System.Runtime.InteropServices;
 using Microsoft.Azure.Devices.Shared;
 using Microsoft.Azure.Devices.Provisioning.Security;
+using System.Reflection;
+using System.Diagnostics;
+using System.Management.Automation;
+using Microsoft.PowerShell.Commands;
+using System.Diagnostics;
+
 
 namespace TPMKeyCreationExample
 {
+    public class PublicKey
+    {
+        public string Oid { get; set; }
+        public string RawData { get; set; }
+    }
+
+    public class TpmEndorsementKeyInfo
+    {
+        public PublicKey PublicKey { get; set; }
+    }
+
     class Program
     {
         private static uint tpm_ht = 0x01C00000; // Default value
@@ -25,9 +43,12 @@ namespace TPMKeyCreationExample
         private static uint en_sendrc = 0;
         private static uint en_azuretst = 0;
         private static byte[] sendrawcommand_input;
-        private static uint sendrawcommand_sz = 0;
+        
         private static int[] x;
         private static uint en_nvrd = 0;
+        private static uint en_nvrdidx = 0;
+        private static uint en_pwrshell = 0;
+        private static uint certidx = 0xc00002;
         private static uint nvidx = 3001;
         private static uint nvhdl = 3001;
         private static ushort nvsz = 8;
@@ -40,7 +61,7 @@ namespace TPMKeyCreationExample
             {
 
                 // Initialize the TPM device
-                tpmDevice = new TbsDevice();
+                tpmDevice = new TbsDevice(false);
                 tpmDevice.Connect();
                 tpm = new Tpm2(tpmDevice, Behavior.Default);
                 readXml();
@@ -66,7 +87,12 @@ namespace TPMKeyCreationExample
                     AzureTest();
                 if (en_sendrc != 0)
                     SendRawCommand();
-
+                if (en_nvrdidx != 0)
+                    GenerateCertFrmIndex();
+                if(en_pwrshell != 0)
+                {
+                    pwrshell();
+                }
 
             }
             catch (Exception ex)
@@ -90,17 +116,16 @@ namespace TPMKeyCreationExample
             byte[] response = null;
             try
             {
+                uint sendrawcommand_sz = (uint)sendrawcommand_input.Length;
                 byte[] commandSizeBytes = BitConverter.GetBytes(sendrawcommand_sz);
                 //byte[] command = ConstructTpmReadPublicCommand(tbsContext);
                 if (BitConverter.IsLittleEndian)
                 {
                     Array.Reverse(commandSizeBytes);
                 }
-                // Copy the commandSizeBytes to the command array starting at position 2
                 Array.Copy(commandSizeBytes, 0, sendrawcommand_input, 2, 4);
                 tpmDevice.DispatchCommand(active, sendrawcommand_input, out response);
                 Console.WriteLine($"TPM Command : {BitConverter.ToString(sendrawcommand_input).Replace("-", " ")}");
-                Console.WriteLine($"TPM Response: {BitConverter.ToString(response).Replace("-", " ")}");
                 int resultSize = response.Length;
                 Console.WriteLine("Result size: " + resultSize);
                 for (int i = 0; i < resultSize; i++)
@@ -121,20 +146,35 @@ namespace TPMKeyCreationExample
         static void AzureTest()
         {
             Console.WriteLine($"\n         #### Azure Test ####");  
-            using (var securityProviderTpm = new SecurityProviderTpmHsm(""))
+            using (var securityProviderTpm = new SecurityProviderTpmHsm("1234"))
             {
                 try
                 {
-                    // Get the Registration ID
-                    string registrationId = securityProviderTpm.GetRegistrationID();
-                    //
-                    // Output the Registration ID
-                    Console.WriteLine($"Registration ID: {registrationId}");
+
                     // Get the Endorsement Key (EK)
                     byte[] endorsementKey = securityProviderTpm.GetEndorsementKey();
-                    // print endorsementky
                     Console.WriteLine($"Endorsement Key (EK): {BitConverter.ToString(endorsementKey).Replace("-", "")}");
+                    // find has Sha256 value from endorsementKey
+                    var certificate = new X509Certificate2(endorsementKey);
+                    if (certificate != null && certificate.PublicKey != null)
+                    {
+                        var pubKey = certificate?.GetPublicKeyString();
+                        Console.WriteLine($"Public Key: {pubKey}");
+                        var fileName = $"_TPM_EK_Cert_Index.crt";
+                        byte[]? certData = certificate?.GetRawCertData();
+                        if (certData != null)
+                            File.WriteAllBytes(fileName, certData);
+                        Console.WriteLine($"{fileName} generated successfully.");
+
+                    }
+                    else
+                    {
+                        Console.WriteLine("Certificate is not valid");
+                    }
+                    // print endorsementky
+                    
                     // Convert the EK to a readable string (e.g., Base64 or Hex)
+                    
                     string ekBase64 = Convert.ToBase64String(endorsementKey);
                     Console.WriteLine($"Endorsement Key (EK) in Base64: {ekBase64}");
                 }
@@ -167,10 +207,13 @@ namespace TPMKeyCreationExample
                 en_rdhdl = Convert.ToUInt32(config.Root.Element("readhandles").Value, 16);
                 en_rdpcr = Convert.ToUInt32(config.Root.Element("readpcr").Value, 16);
                 en_gencer = Convert.ToUInt32(config.Root.Element("generatecert").Value, 16);
+                en_nvrdidx = Convert.ToUInt32(config.Root.Element("GenerateCertFrmIndex").Value, 16);
+                certidx = Convert.ToUInt32(config.Root.Element("GenerateCertFrmIndex_id").Value, 16);
+                
                 en_getalgpr = Convert.ToUInt32(config.Root.Element("GetAlgProperties").Value, 16);
                 en_azuretst = Convert.ToUInt32(config.Root.Element("AzureTest").Value, 16);
                 en_sendrc = Convert.ToUInt32(config.Root.Element("SendRawCommand").Value, 16);
-                sendrawcommand_sz = uint.Parse(config.Root.Element("SendRawCommand_sz").Value);
+                //sendrawcommand_sz = uint.Parse(config.Root.Element("SendRawCommand_sz").Value);
                 sendrawcommand_input = config.Root.Element("SendRawCommand_input").Value
                                             .Split(new[] { ' ', '\t', '\n', '\r' }, StringSplitOptions.RemoveEmptyEntries)
                                             .Select(s => byte.Parse(s, System.Globalization.NumberStyles.HexNumber))
@@ -195,6 +238,7 @@ namespace TPMKeyCreationExample
                 }
 
 
+                en_pwrshell = Convert.ToUInt32(config.Root.Element("pwrshell").Value, 16);
                 en_nvrd = Convert.ToUInt32(config.Root.Element("NvRead").Value, 16);
                 nvidx = Convert.ToUInt32(config.Root.Element("NvRead_idx").Value, 16);
                 XElement nvhdlElement = config.Root.Element("NvRead_hdl");
@@ -212,6 +256,164 @@ namespace TPMKeyCreationExample
             {
                 Console.WriteLine("An error occurred while reading the XML file: " + ex.Message);
             }
+        }
+        static List<string> ExtractRawData(string jsonInput)
+        {
+            try
+            {
+                // Parse the JSON input
+                var jsonDoc = JsonDocument.Parse(jsonInput);
+
+                // Navigate to the RawData property
+                string rawDataString = jsonDoc.RootElement
+                                             .GetProperty("PublicKey")
+                                             .GetProperty("RawData")
+                                             .GetString();
+
+                // Convert RawData to a list of integers
+                string[] rawDataParts = rawDataString.Split(' ', StringSplitOptions.RemoveEmptyEntries);
+                List<string> rawDataList = new List<string>();
+
+                foreach (string part in rawDataParts)
+                {
+                    if (int.TryParse(part, out int value))
+                    {
+                        rawDataList.Add(value.ToString("X2"));
+                    }
+                }
+
+                return rawDataList;
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"Error: {ex.Message}");
+                return new List<string>();
+            }
+        }
+
+        static void pwrshell()
+        {
+            try
+            {
+                Console.WriteLine($"\n         #### PowerShell Command  using ProcessStartInfo ####");
+                // Define the PowerShell command to retrieve the EK
+                //string powerShellCommand = @"Get-CimInstance -Namespace 'Root\CIMv2\Security\MicrosoftTpm' -ClassName 'Win32_Tpm' ";
+                //string powerShellCommand = @"Get-TpmEndorsementKeyInfo -Hash ""Sha256"" ";
+                string powerShellCommand = @"Get-TpmEndorsementKeyInfo -Hash ""Sha256"" | Select-Object PublicKey | ConvertTo-Json -Depth 1";
+                //Get-TpmEndorsementKeyInfo -Hash "Sha256" | Select-Object -ExpandProperty ManufacturerCertificates|Select-Object serialnumber
+                //Get-TpmEndorsementKeyInfo -Hash "Sha256" | Select-Object -ExpandProperty ManufacturerCertificates|Select-Object issuer
+                //Get-TpmEndorsementKeyInfo -Hash "Sha256" | Select-Object -ExpandProperty ManufacturerCertificates|Select-Object thumbprint
+                // Initialize the PowerShell process
+                ProcessStartInfo psi = new ProcessStartInfo
+                {
+                    FileName = "powershell.exe",
+                    Arguments = $"-NoProfile -Command \"{powerShellCommand}\"",
+                    RedirectStandardOutput = true,
+                    RedirectStandardError = true,
+                    UseShellExecute = false,
+                    CreateNoWindow = true
+                };
+
+                using (Process powerShellProcess = new Process { StartInfo = psi })
+                {
+                    // Start the process
+                    powerShellProcess.Start();
+
+                    // Read the standard output
+                    string output = powerShellProcess.StandardOutput.ReadToEnd();
+
+                    // Wait for the process to finish
+                    powerShellProcess.WaitForExit();
+
+                    // Check for errors
+                    string error = powerShellProcess.StandardError.ReadToEnd();
+                    if (!string.IsNullOrWhiteSpace(error))
+                    {
+                        Console.WriteLine($"PowerShell Error: {error}");
+                    }
+                    else
+                    {
+                        Console.WriteLine("Endorsement Key (EK):");
+                        Console.WriteLine(output);
+                        List<string> rawDataList = ExtractRawData(output);
+                        Console.WriteLine("RawData as List of Integers: size: "+ rawDataList.Count);
+                        rawDataList.ForEach(i => Console.Write(i ));
+                    }
+                }
+                powerShellCommand = @"Get-TpmEndorsementKeyInfo -Hash ""Sha256"" | Select-Object -ExpandProperty ManufacturerCertificates|Select-Object serialnumber";
+                psi = new ProcessStartInfo
+                {
+                    FileName = "powershell.exe",
+                    Arguments = $"-NoProfile -Command \"{powerShellCommand}\"",
+                    RedirectStandardOutput = true,
+                    RedirectStandardError = true,
+                    UseShellExecute = false,
+                    CreateNoWindow = true
+                };
+                using (Process powerShellProcess = new Process { StartInfo = psi })
+                {
+                    // Start the process
+                    powerShellProcess.Start();
+
+                    // Read the standard output
+                    string output = powerShellProcess.StandardOutput.ReadToEnd();
+
+                    // Wait for the process to finish
+                    powerShellProcess.WaitForExit();
+
+                    // Check for errors
+                    string error = powerShellProcess.StandardError.ReadToEnd();
+                    if (!string.IsNullOrWhiteSpace(error))
+                    {
+                        Console.WriteLine($"PowerShell Error: {error}");
+                    }
+                    else
+                    {
+                        Console.WriteLine("Endorsement Key (Serial NO):");
+                        Console.WriteLine(output);
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"Error: {ex.Message}");
+            }
+            try
+            {
+                Console.WriteLine($"\n         #### PowerShell Command  using ProcessStartInfo ####");
+                Console.WriteLine("                 It requires system.management.automation and many more \n");
+                using (PowerShell powerShell = PowerShell.Create())
+                {
+                    powerShell.AddScript(@"
+                Get-TpmEndorsementKeyInfo -Hash 'Sha256' |
+                Select-Object PublicKey |
+                ConvertTo-Json -Depth 1
+            ");
+
+                    // Execute the PowerShell script
+                    var results = powerShell.Invoke();
+
+                    if (results.Count > 0)
+                    {
+                        // Parse the JSON output
+                        string jsonOutput = results[0].ToString();
+                        TpmEndorsementKeyInfo ekInfo = JsonSerializer.Deserialize<TpmEndorsementKeyInfo>(jsonOutput);
+
+                        // Output the EK PublicKey
+                        Console.WriteLine($"EK PublicKey: {ekInfo.PublicKey.RawData}");
+                    }
+                    else
+                    {
+                        Console.WriteLine("No results returned from PowerShell.");
+                    }
+                }
+
+            }
+            catch(Exception ex)
+            {
+                Console.WriteLine($"Error: {ex.Message}");
+            }
+
         }
         static void NvRead()
         {
@@ -474,6 +676,48 @@ namespace TPMKeyCreationExample
 
 
         }
+        static void GenerateCertFrmIndex()
+        {
+            var index = TpmHandle.NV(certidx);
+            Console.WriteLine($"\n\n         #### Generating Certificates ####");
+            try
+            {
+                uint nvIndex = index.GetIndex();
+                //bool isLowRange = nvIndex >= 0x01C00002 && nvIndex <= 0x01C0000C;
+                //bool isHighRange = nvIndex >= 0x01C00012 && nvIndex <= ekCertHandleRangeEnd;
+
+                // Step 3: Read the NV index using TPM2_NV_ReadPublic() and TPM2_NV_Read()
+                var nvPublic = tpm.NvReadPublic(index, out var nvName);
+                var nvData = GetEkCertificateContent(nvPublic, index, tpm);
+                var certificate = new X509Certificate2(nvData);
+                if (certificate != null && certificate.PublicKey != null)
+                {
+                    // Certificate is valid and has a private key (if applicable)
+                    //Console.WriteLine("Certificate is valid");
+                    //var cert = new X509Certificate2(nvData);
+                    var pubKey = certificate?.GetPublicKeyString();
+                    Console.WriteLine($"Public Key: {pubKey.GetHashCode()}");
+                    var fileName = $"_TPM_EK_Cert_Index_{index.GetIndex():X}.crt";
+                    byte[]? certData = certificate?.GetRawCertData();
+                    if (certData != null)
+                        File.WriteAllBytes(fileName, certData);
+
+                    Console.WriteLine($"{fileName} generated successfully.");
+
+                }
+                else
+                {
+                    Console.WriteLine("Certificate is not valid");
+                }
+
+            }
+            catch (Exception e)
+            {
+
+                Console.WriteLine(e.Message);
+            }
+
+        }
 
         static void GenerateCert(TpmHandle[] indexes)
         {
@@ -489,6 +733,10 @@ namespace TPMKeyCreationExample
                     // Step 3: Read the NV index using TPM2_NV_ReadPublic() and TPM2_NV_Read()
                     var nvPublic = tpm.NvReadPublic(index, out var nvName);
                     var nvData = GetEkCertificateContent(nvPublic, index, tpm);
+                    //print byte[]
+                    
+
+                    
                     var certificate = new X509Certificate2(nvData);
                     if (certificate != null && certificate.PublicKey != null)
                     {
@@ -522,6 +770,8 @@ namespace TPMKeyCreationExample
         {
             try
             {
+                Console.WriteLine($"nvPublic: #  {BitConverter.ToString(nvPublic).Replace("-", "")}");
+
                 const ushort maxChunkSize = 700;
 
                 byte[] ekCert = new byte[nvPublic.dataSize];
@@ -540,7 +790,8 @@ namespace TPMKeyCreationExample
 
                     offset += dataSize;
                 }
-
+                Console.WriteLine($"nvData: {ekCert.Length}  #  {BitConverter.ToString(ekCert).Replace("-", "")}");
+                
                 return ekCert;
             }
             catch (Exception e)
