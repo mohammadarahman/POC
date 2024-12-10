@@ -14,20 +14,21 @@ using System.Reflection;
 using System.Diagnostics;
 using System.Management.Automation;
 using Microsoft.PowerShell.Commands;
-using System.Diagnostics;
+using System.Security.Cryptography;
+
 
 
 namespace TPMKeyCreationExample
 {
     public class PublicKey
     {
-        public string Oid { get; set; }
-        public string RawData { get; set; }
+        public string Oid { get; set; } =string.Empty;
+        public string RawData { get; set; } = string.Empty;
     }
 
     public class TpmEndorsementKeyInfo
     {
-        public PublicKey PublicKey { get; set; }
+        public PublicKey PublicKey { get; set; }= new PublicKey();
     }
 
     class Program
@@ -51,7 +52,7 @@ namespace TPMKeyCreationExample
         private static uint certidx = 0xc00002;
         private static uint nvidx = 3001;
         private static uint nvhdl = 3001;
-        private static ushort nvsz = 8;
+        //private static ushort nvsz = 8;
         private static Tpm2 tpm;
         private static TbsDevice tpmDevice = null;
         static void Main()
@@ -72,8 +73,10 @@ namespace TPMKeyCreationExample
                     ReadHandles(nvindexes);
                 if (en_nvrd != 0)
                 {
-                    NvRead();
-                    NvReadPublic_();
+                    ReadPublicPermanent();
+                    ReadPublicPersistant();
+                    ushort nvsz = NvReadPublic_();
+                    NvRead(nvsz);
                 }
                 if ((en_rdpcr != 0)&&nvindexes!=null)
                     ReadPcr();
@@ -145,36 +148,33 @@ namespace TPMKeyCreationExample
 
         static void AzureTest()
         {
-            Console.WriteLine($"\n         #### Azure Test ####");  
+            Console.WriteLine($"\n         #### Azure Test ####");
             using (var securityProviderTpm = new SecurityProviderTpmHsm("1234"))
             {
                 try
                 {
-
                     // Get the Endorsement Key (EK)
                     byte[] endorsementKey = securityProviderTpm.GetEndorsementKey();
                     Console.WriteLine($"Endorsement Key (EK): {BitConverter.ToString(endorsementKey).Replace("-", "")}");
-                    // find has Sha256 value from endorsementKey
-                    var certificate = new X509Certificate2(endorsementKey);
-                    if (certificate != null && certificate.PublicKey != null)
-                    {
-                        var pubKey = certificate?.GetPublicKeyString();
-                        Console.WriteLine($"Public Key: {pubKey}");
-                        var fileName = $"_TPM_EK_Cert_Index.crt";
-                        byte[]? certData = certificate?.GetRawCertData();
-                        if (certData != null)
-                            File.WriteAllBytes(fileName, certData);
-                        Console.WriteLine($"{fileName} generated successfully.");
 
-                    }
-                    else
+                    // Attempt to create an X509Certificate2 from the endorsement key
+                    try
                     {
-                        Console.WriteLine("Certificate is not valid");
+                        var certificate = new X509Certificate2(endorsementKey);
+                        var pubKey = certificate.GetPublicKeyString();
+                        Console.WriteLine($"Public Key: {pubKey}");
+
+                        string fileName = "_TPM_EK_Cert_Index.crt";
+                        byte[] certData = certificate.GetRawCertData();
+                        File.WriteAllBytes(fileName, certData);
+                        Console.WriteLine($"{fileName} generated successfully.");
                     }
-                    // print endorsementky
-                    
+                    catch (CryptographicException)
+                    {
+                        Console.WriteLine("The endorsement key is not a valid certificate.");
+                    }
+
                     // Convert the EK to a readable string (e.g., Base64 or Hex)
-                    
                     string ekBase64 = Convert.ToBase64String(endorsementKey);
                     Console.WriteLine($"Endorsement Key (EK) in Base64: {ekBase64}");
                 }
@@ -249,7 +249,7 @@ namespace TPMKeyCreationExample
                 {
                     nvhdl = nvidx;
                 }
-                nvsz = Convert.ToUInt16(config.Root.Element("NvRead_sz").Value, 16);
+                //nvsz = Convert.ToUInt16(config.Root.Element("NvRead_sz").Value, 16);
 
             }
             catch (Exception ex)
@@ -290,20 +290,102 @@ namespace TPMKeyCreationExample
                 return new List<string>();
             }
         }
+        private static string executePowerShellCmd(string command)
+        {
+            ProcessStartInfo psi = new ProcessStartInfo
+            {
+                FileName = "powershell.exe",
+                Arguments = $"-NoProfile -Command \"{command}\"",
+                RedirectStandardOutput = true,
+                RedirectStandardError = true,
+                UseShellExecute = false,
+                CreateNoWindow = true
+            };
+            string output = null; 
+            using (Process powerShellProcess = new Process { StartInfo = psi })
+            {
+                try
+                {
+                    powerShellProcess.Start();
+                    output = powerShellProcess.StandardOutput.ReadToEnd();
+                    powerShellProcess.WaitForExit();
+                    string error = powerShellProcess.StandardError.ReadToEnd();
+                    if (!string.IsNullOrWhiteSpace(error))
+                    {
+                        //Console.WriteLine($"PowerShell Error: {error}");
+                        output = "ERROR: " + error.Split(new[] { Environment.NewLine }, StringSplitOptions.None)[0]; 
+                    }
+                }
+                catch(Exception ex)
+                {
+                    Console.WriteLine($"Error: {ex.Message}");
+                }   
+                
+            }
+            return output;
+        }
+        // write a function that converts hex string to byte array
+        static byte[] HexStringToByteArray(string hexString)
+        {
+            
 
+            if (hexString.Length % 2 != 0)
+            {
+                throw new ArgumentException("Invalid hex string length.");
+            }
+            byte[] byteArray = new byte[hexString.Length / 2];
+            try
+            {
+                for (int i = 0; i < byteArray.Length; i++)
+                {
+                    byteArray[i] = byte.Parse(hexString.Substring(i * 2, 2), NumberStyles.HexNumber);
+                    //Console.WriteLine(":" + i + hexString.Substring(i * 2, 2));
+                }
+
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"Error: {ex.Message}");
+            }   
+
+
+            return byteArray;
+        }   
         static void pwrshell()
         {
+
             try
             {
                 Console.WriteLine($"\n         #### PowerShell Command  using ProcessStartInfo ####");
                 // Define the PowerShell command to retrieve the EK
                 //string powerShellCommand = @"Get-CimInstance -Namespace 'Root\CIMv2\Security\MicrosoftTpm' -ClassName 'Win32_Tpm' ";
                 //string powerShellCommand = @"Get-TpmEndorsementKeyInfo -Hash ""Sha256"" ";
-                string powerShellCommand = @"Get-TpmEndorsementKeyInfo -Hash ""Sha256"" | Select-Object PublicKey | ConvertTo-Json -Depth 1";
+                //string powerShellCommand = @"Get-TpmEndorsementKeyInfo -Hash ""Sha256"" | Select-Object PublicKey | ConvertTo-Json -Depth 1";
                 //Get-TpmEndorsementKeyInfo -Hash "Sha256" | Select-Object -ExpandProperty ManufacturerCertificates|Select-Object serialnumber
                 //Get-TpmEndorsementKeyInfo -Hash "Sha256" | Select-Object -ExpandProperty ManufacturerCertificates|Select-Object issuer
                 //Get-TpmEndorsementKeyInfo -Hash "Sha256" | Select-Object -ExpandProperty ManufacturerCertificates|Select-Object thumbprint
                 // Initialize the PowerShell process
+                string powerShellCommand = @"(Get-TpmEndorsementKeyInfo -Hash ""Sha256"").ManufacturerCertificates.GetPublicKeyString()";
+                string x = executePowerShellCmd(powerShellCommand);
+                Console.WriteLine("public key: ");
+                Console.WriteLine(x);
+                powerShellCommand = @"(Get-TpmEndorsementKeyInfo -Hash ""Sha256"").ManufacturerCertificates.GetRawCertDataString()";
+                x = executePowerShellCmd(powerShellCommand);
+                Console.WriteLine("Raw Cert Data: ");
+                Console.WriteLine(x);
+                byte[] certdata = HexStringToByteArray(x.Trim());
+                Console.WriteLine(certdata);
+                powerShellCommand = @"(Get-TpmEndorsementKeyInfo -Hash ""Sha256"").AdditionalCertificates.GetPublicKeyString()";
+                x = executePowerShellCmd(powerShellCommand);
+                Console.WriteLine("additional public key Data: ");
+                Console.WriteLine(x);
+                powerShellCommand = @"(Get-TpmEndorsementKeyInfo -Hash ""Sha256"").AdditionalCertificates.GetRawCertDataString()";
+                x = executePowerShellCmd(powerShellCommand);
+                Console.WriteLine("additional Raw Cert Data: ");
+                Console.WriteLine(x);
+
+
+                return;
                 ProcessStartInfo psi = new ProcessStartInfo
                 {
                     FileName = "powershell.exe",
@@ -415,15 +497,51 @@ namespace TPMKeyCreationExample
             }
 
         }
-        static void NvRead()
+        static void NvRead(ushort sz)
         {
+            ushort offset = 0;
+            ushort remsz = sz;
             try
             {
+                /*
+                // Correctly start a policy session
+                // Step 2: Start a policy session with correct arguments
+                byte[] nonceCaller = new byte[20]; // 20 bytes is standard for nonceCaller
+                new Random().NextBytes(nonceCaller); // Generate a random nonceCaller
+                byte[] encryptedSalt = null;        // No encrypted salt for this session
+
+                // Start the session
+                byte[] nonceTPM; // This will hold the TPM-generated nonce
+                AuthSession policySession = tpm.StartAuthSession(
+                    TpmHandle.RhNull,          // No specific key handle
+                    TpmHandle.RhNull,          // No bind handle
+                    nonceCaller,               // Caller nonce
+                    encryptedSalt,             // Encrypted salt (null for no salt)
+                    TpmSe.Policy,              // Session type (Policy session)
+                    new SymDef(SymDefObject.NullObject()), // No symmetric encryption
+                    TpmAlgId.Sha256,           // SHA-256 as the hash algorithm
+                    out nonceTPM               // Out parameter for TPM nonce
+                );
+
+                // Assume policySession is already created using StartAuthSession
+                byte writtenSet = 0; // Adjust to match the expected written state (0 or 1)
+
+                // Apply the PolicyNvWritten condition
+                tpm.PolicyNvWritten(policySession.Handle, writtenSet);
+
+                TpmHandle authHandle = TpmRh.Owner;
+                */
                 Console.WriteLine($"\n         #### NV Read ####");
-                TpmHandle nvHandle = TpmHandle.NV(nvhdl);
-                TpmHandle nvIndex = TpmHandle.NV(nvidx);
-                byte[] nvRead = tpm.NvRead(nvHandle, nvIndex, nvsz, 0);
-                Console.WriteLine($"nvRead: {nvRead.Length}  #  {BitConverter.ToString(nvRead).Replace("-", "")}");
+                for (int i = 0; i <= sz / 700; i++)
+                {
+                    ushort cursz = (ushort)((remsz > 700) ? 700 : remsz);
+                    TpmHandle nvHandle = TpmHandle.NV(nvhdl);
+                    TpmHandle nvIndex = TpmHandle.NV(nvidx);
+                    byte[] nvRead = tpm.NvRead(nvIndex, nvIndex, cursz, offset);
+                    remsz -= 700;
+                    offset += 700;
+                    Console.WriteLine($"\nnvRead:{i} {nvRead.Length}  #  {BitConverter.ToString(nvRead).Replace("-", "")}");
+                }
             }
             catch(Exception ex)
             {
@@ -431,22 +549,133 @@ namespace TPMKeyCreationExample
             }
             
         }
-        static void NvReadPublic_()
+        static ushort ReadPublicPermanent()
         {
+            //return 0;
+            ushort size = 0;
+            try
+            {
+                Console.WriteLine($"\n         ####  Read Public (permanent) ####");
+                TpmHandle nvIndex = TpmHandle.RhOwner;
+                //nvPublic and nVRead is same
+                var tpmPublic = tpm.ReadPublic(nvIndex, out var nvName, out var nvQualifiedname);
+                if (tpmPublic != null)
+                {
+                    Console.WriteLine($"Type: {tpmPublic.type}");
+                    Console.WriteLine($"Algorithm: {tpmPublic.parameters}");
+
+                    // Extract RSA Public Key (Modulus)
+                    if (tpmPublic.type == TpmAlgId.Rsa)
+                    {
+                        var rsaPublicKey = tpmPublic.unique as Tpm2bPublicKeyRsa;
+                        if (rsaPublicKey != null)
+                        {
+                            Console.WriteLine("RSA Public Key Modulus:");
+                            Console.WriteLine(BitConverter.ToString(rsaPublicKey.buffer));
+                        }
+                    }
+
+                    // Extract ECC Public Key
+                    if (tpmPublic.type == TpmAlgId.Ecc)
+                    {
+                        var eccPoint = tpmPublic.unique as EccPoint;
+                        if (eccPoint != null)
+                        {
+                            Console.WriteLine("ECC Public Key:");
+                            Console.WriteLine($"X: {BitConverter.ToString(eccPoint.x)}");
+                            Console.WriteLine($"Y: {BitConverter.ToString(eccPoint.y)}");
+                        }
+                    }
+                }
+                ParseNvName(nvName);
+                ParseNvName(nvQualifiedname);
+                Console.WriteLine($"Read Public: Index({nvidx.ToString("X")})  #  {BitConverter.ToString(tpmPublic)}");
+                Console.WriteLine($"\ntpmPublic.attributes :  {tpmPublic.objectAttributes}");
+                Console.WriteLine($"tpmPublic.para :    {tpmPublic.parameters}");
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine("Error in NvRead: " + ex.Message);
+            }
+            return size;
+
+        }
+        static ushort ReadPublicPersistant()
+        {
+            ushort size = 0;
+            try
+            {
+                Console.WriteLine($"\n         ####  Read Public (persistant) ####");
+                TpmHandle nvIndex = TpmHandle.Persistent(nvidx);
+                //nvPublic and nVRead is same
+                var tpmPublic = tpm.ReadPublic(nvIndex, out var nvName,out var nvQualifiedname);
+                if (tpmPublic != null)
+                {
+                    Console.WriteLine($"Type: {tpmPublic.type}");
+                    Console.WriteLine($"Algorithm: {tpmPublic.parameters}");
+                    
+                    // Extract RSA Public Key (Modulus)
+                    if (tpmPublic.type == TpmAlgId.Rsa)
+                    {
+                        var rsaPublicKey = tpmPublic.unique as Tpm2bPublicKeyRsa;
+                        if (rsaPublicKey != null)
+                        {
+                            Console.WriteLine("RSA Public Key Modulus:");
+                            Console.WriteLine(BitConverter.ToString(rsaPublicKey.buffer));
+                        }
+                        else
+                        {
+                            Console.WriteLine("The public key is not an RSA public key.");
+                        }
+                    }
+
+                    // Extract ECC Public Key
+                    if (tpmPublic.type == TpmAlgId.Ecc)
+                    {
+                        var eccPoint = tpmPublic.unique as EccPoint;
+                        if (eccPoint != null)
+                        {
+                            Console.WriteLine("ECC Public Key:");
+                            Console.WriteLine($"X: {BitConverter.ToString(eccPoint.x)}");
+                            Console.WriteLine($"Y: {BitConverter.ToString(eccPoint.y)}");
+                        }
+                    }
+                }
+                ParseNvName(nvName);
+                ParseNvName(nvQualifiedname);
+                Console.WriteLine($"Read Public: Index({nvidx.ToString("X")})  #  {BitConverter.ToString(tpmPublic)}");
+                Console.WriteLine($"\ntpmPublic.attributes :  {tpmPublic.objectAttributes}");
+                Console.WriteLine($"tpmPublic.para :    {tpmPublic.parameters}");
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine("Error in NvRead: " + ex.Message);
+            }
+            return size;
+
+        }
+        static ushort NvReadPublic_()
+        {
+            ushort size = 0; 
             try
             { 
                 Console.WriteLine($"\n         #### NV Read Public ####");
                 TpmHandle nvIndex = TpmHandle.NV(nvidx);
                 //nvPublic and nVRead is same
-                byte[] nvRead = tpm.NvReadPublic(nvIndex, out var nvName);
+                var nvPublic = tpm.NvReadPublic(nvIndex, out var nvName);
                 ParseNvName(nvName);
-                Console.WriteLine($"nvRead Public: {nvRead.Length}  #  {BitConverter.ToString(nvRead).Replace("-", "")}");
+                Console.WriteLine($"nvRead Public: Index({nvidx.ToString("X")})  #  {BitConverter.ToString(nvPublic)}");
+                Console.WriteLine($"\nnvPublic.attributes :  {nvPublic.attributes}");
+                Console.WriteLine($"nvPublic.dataSize :    {nvPublic.dataSize}");
+                size = nvPublic.dataSize;
+                Console.WriteLine($"nvPublic.nameAlg :     {nvPublic.nameAlg}");
             }
             catch(Exception ex)
             {
                 Console.WriteLine("Error in NvRead: " + ex.Message);
             }
-}
+            return size;
+        }
         static void ReadHandles(TpmHandle[] indexes)
         {
             Console.WriteLine($"\n\n         #### Reading data from found handles.  ####");
@@ -548,7 +777,8 @@ namespace TPMKeyCreationExample
                 ICapabilitiesUnion nvIndices;
                 // Step 1: Get a list of all NV indices in the EK certificate handle range
                 const uint size = 0xFF;
-                var value = tpm.GetCapability(tpm_cap, tpm_ht, size, out nvIndices);
+                //var value = tpm.GetCapability(tpm_cap, tpm_ht, size, out nvIndices);
+                var value = tpm.GetCapability(Cap., tpm_ht, size, out nvIndices);
                 indexes = ((HandleArray)nvIndices).handle;
                 foreach (var index in indexes)
                 {
@@ -571,7 +801,7 @@ namespace TPMKeyCreationExample
             {
                 ICapabilitiesUnion caps;
 
-                var value = tpm.GetCapability(Cap.TpmProperties, 258, 256, out caps);
+                var value = tpm.GetCapability(Cap.TpmProperties, 0, 256, out caps);
 
                 TaggedProperty[] arr = (caps as TaggedTpmPropertyArray).tpmProperty;
                 int i = 0;
